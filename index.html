@@ -273,18 +273,20 @@
       </div>
     </div>
     <div class="embed-wrap" id="spotifyEmbed"></div>
-    <div class="artist-info" id="artistInfo" style="display:none">
-      <div class="artist-info-label">🤖 OM ARTISTEN</div>
-      <div class="artist-info-text" id="artistInfoText"></div>
-    </div>
-    <div class="artist-loading" id="artistLoading" style="display:none">
-      <div class="mini-spinner"></div>
-      <span>Hämtar artistinfo…</span>
-    </div>
     <div class="song-footer">
       <button class="scan-again-btn" onclick="resumeScan()">↩ Scanna igen</button>
       <a class="open-btn" id="openSpotify" href="#" target="_blank">♫ Öppna i Spotify</a>
     </div>
+  </div>
+
+  <!-- Artist info box — outside song card, always at bottom -->
+  <div class="artist-info" id="artistInfo" style="display:none">
+    <div class="artist-info-label">📖 OM ARTISTEN</div>
+    <div class="artist-info-text" id="artistInfoText"></div>
+  </div>
+  <div class="artist-loading" id="artistLoading" style="display:none">
+    <div class="mini-spinner"></div>
+    <span>Hämtar artistinfo…</span>
   </div>
 
   <div id="historySection" style="display:none">
@@ -507,13 +509,17 @@ function showTrack(track) {
       artistInfoText.textContent = text;
       artistInfo.style.display = 'block';
     })
-    .catch(() => {
+    .catch(e => {
       artistLoading.style.display = 'none';
+      artistInfoText.textContent = 'Kunde inte hämta info om artisten.';
+      artistInfo.style.display = 'block';
     });
 }
 
 function resumeScan() {
   document.getElementById('songCard').classList.remove('show');
+  document.getElementById('artistInfo').style.display = 'none';
+  document.getElementById('artistLoading').style.display = 'none';
   hideError();
   lastId = null;
   paused = false;

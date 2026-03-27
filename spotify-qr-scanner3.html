@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spotify QR Scanner</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --green: #1DB954;
+    --green-dim: #158a3e;
+    --black: #0a0a0a;
+    --card: #141414;
+    --border: #2a2a2a;
+    --text: #f0f0f0;
+    --muted: #888;
+    --scan-line: rgba(29,185,84,0.6);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--black);
+    color: var(--text);
+    font-family: 'Space Mono', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow-x: hidden;
+  }
+
+  /* Background grid */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(29,185,84,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(29,185,84,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  header {
+    width: 100%;
+    max-width: 600px;
+    padding: 32px 24px 0;
+    position: relative;
+    z-index: 1;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 6px;
+  }
+
+  .logo-icon {
+    width: 36px; height: 36px;
+    background: var(--green);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    box-shadow: 0 0 20px rgba(29,185,84,0.4);
+    animation: pulse 3s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%,100% { box-shadow: 0 0 20px rgba(29,185,84,0.4); }
+    50% { box-shadow: 0 0 40px rgba(29,185,84,0.8); }
+  }
+
+  h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    color: var(--text);
+  }
+
+  .subtitle {
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-left: 48px;
+  }
+
+  main {
+    width: 100%;
+    max-width: 600px;
+    padding: 24px;
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  /* Scanner Box */
+  .scanner-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1/1;
+    border-radius: 16px;
+    overflow: hidden;
+    background: #111;
+    border: 1px solid var(--border);
+  }
+
+  #video {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  #canvas { display: none; }
+
+  .scanner-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  /* Corner brackets */
+  .corner {
+    position: absolute;
+    width: 28px; height: 28px;
+    border-color: var(--green);
+    border-style: solid;
+  }
+  .corner.tl { top: 20px; left: 20px; border-width: 3px 0 0 3px; border-radius: 4px 0 0 0; }
+  .corner.tr { top: 20px; right: 20px; border-width: 3px 3px 0 0; border-radius: 0 4px 0 0; }
+  .corner.bl { bottom: 20px; left: 20px; border-width: 0 0 3px 3px; border-radius: 0 0 0 4px; }
+  .corner.br { bottom: 20px; right: 20px; border-width: 0 3px 3px 0; border-radius: 0 0 4px 0; }
+
+  /* Scan line */
+  .scan-line {
+    position: absolute;
+    left: 20px; right: 20px;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--scan-line), var(--green), var(--scan-line), transparent);
+    top: 20px;
+    animation: scanMove 2.5s ease-in-out infinite;
+    border-radius: 2px;
+    box-shadow: 0 0 8px var(--green);
+  }
+
+  @keyframes scanMove {
+    0% { top: 20px; opacity: 0; }
+    10% { opacity: 1; }
+    90% { opacity: 1; }
+    100% { top: calc(100% - 20px); opacity: 0; }
+  }
+
+  .scan-hint {
+    position: absolute;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 11px;
+    color: rgba(255,255,255,0.5);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    white-space: nowrap;
+    background: rgba(0,0,0,0.5);
+    padding: 4px 12px;
+    border-radius: 20px;
+  }
+
+  /* Status badge */
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 6px 14px;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    align-self: center;
+    transition: all 0.3s;
+  }
+
+  .status-badge.active {
+    color: var(--green);
+    border-color: var(--green);
+    background: rgba(29,185,84,0.08);
+  }
+
+  .status-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--muted);
+    transition: all 0.3s;
+  }
+
+  .status-badge.active .status-dot {
+    background: var(--green);
+    box-shadow: 0 0 6px var(--green);
+    animation: blink 1.2s ease-in-out infinite;
+  }
+
+  @keyframes blink {
+    0%,100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  /* Start button */
+  .btn-start {
+    width: 100%;
+    padding: 16px;
+    background: var(--green);
+    color: #000;
+    border: none;
+    border-radius: 12px;
+    font-family: 'Syne', sans-serif;
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-start:hover {
+    background: #22d460;
+    transform: translateY(-1px);
+    box-shadow: 0 8px 24px rgba(29,185,84,0.3);
+  }
+
+  .btn-start:active { transform: translateY(0); }
+
+  /* Song card */
+  .song-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+    display: none;
+    animation: slideUp 0.5s cubic-bezier(0.16,1,0.3,1);
+  }
+
+  .song-card.visible { display: block; }
+
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .song-header {
+    display: flex;
+    gap: 16px;
+    padding: 20px;
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .album-art {
+    width: 80px; height: 80px;
+    border-radius: 8px;
+    object-fit: cover;
+    flex-shrink: 0;
+    background: var(--border);
+  }
+
+  .song-main { flex: 1; min-width: 0; }
+
+  .song-name {
+    font-family: 'Syne', sans-serif;
+    font-size: 18px;
+    font-weight: 800;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text);
+  }
+
+  .song-artist {
+    font-size: 13px;
+    color: var(--green);
+    margin: 3px 0 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .song-album {
+    font-size: 11px;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .song-details {
+    padding: 16px 20px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .detail-item { }
+
+  .detail-label {
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 3px;
+  }
+
+  .detail-value {
+    font-size: 13px;
+    color: var(--text);
+    font-weight: 700;
+  }
+
+  .song-footer {
+    padding: 12px 20px 16px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .open-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--green);
+    color: #000;
+    text-decoration: none;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-family: 'Syne', sans-serif;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    transition: all 0.2s;
+  }
+
+  .open-btn:hover {
+    background: #22d460;
+    transform: translateY(-1px);
+  }
+
+  .scan-again-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 1px;
+  }
+
+  .scan-again-btn:hover {
+    border-color: var(--text);
+    color: var(--text);
+  }
+
+  /* Loading */
+  .loading {
+    text-align: center;
+    padding: 32px;
+    display: none;
+  }
+
+  .loading.visible { display: block; }
+
+  .spinner {
+    width: 36px; height: 36px;
+    border: 3px solid var(--border);
+    border-top-color: var(--green);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 12px;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .loading p {
+    font-size: 12px;
+    color: var(--muted);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+
+  /* Error */
+  .error-msg {
+    background: rgba(255,60,60,0.08);
+    border: 1px solid rgba(255,60,60,0.3);
+    border-radius: 12px;
+    padding: 16px 20px;
+    font-size: 12px;
+    color: #ff6060;
+    text-align: center;
+    display: none;
+    letter-spacing: 0.5px;
+    line-height: 1.6;
+  }
+
+  .error-msg.visible { display: block; }
+
+  /* History */
+  .history-section { }
+
+  .history-title {
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .history-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .history-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-decoration: none;
+    color: inherit;
+  }
+
+  .history-item:hover {
+    border-color: var(--green);
+    background: rgba(29,185,84,0.05);
+  }
+
+  .history-thumb {
+    width: 40px; height: 40px;
+    border-radius: 6px;
+    object-fit: cover;
+    background: var(--border);
+    flex-shrink: 0;
+  }
+
+  .history-info { flex: 1; min-width: 0; }
+
+  .history-name {
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .history-artist {
+    font-size: 11px;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .history-num {
+    font-size: 10px;
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+
+  footer {
+    padding: 24px;
+    font-size: 10px;
+    color: #444;
+    letter-spacing: 1px;
+    text-align: center;
+    position: relative;
+    z-index: 1;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">♫</div>
+    <h1>SPOTIFY QR SCANNER</h1>
+  </div>
+  <div class="subtitle">Point at a Spotify code to reveal the track</div>
+</header>
+
+<main>
+  <div class="scanner-wrap" id="scannerWrap">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="canvas"></canvas>
+    <div class="scanner-overlay">
+      <div class="corner tl"></div>
+      <div class="corner tr"></div>
+      <div class="corner bl"></div>
+      <div class="corner br"></div>
+      <div class="scan-line" id="scanLine"></div>
+      <div class="scan-hint">HOLD STEADY — SCANNING</div>
+    </div>
+  </div>
+
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+    <div class="status-badge" id="statusBadge">
+      <div class="status-dot"></div>
+      <span id="statusText">CAMERA OFF</span>
+    </div>
+    <button class="btn-start" id="startBtn" onclick="startScanner()">▶ Start Camera</button>
+  </div>
+
+  <div style="text-align:center;margin-top:-8px">
+    <label for="imageUpload" style="font-size:11px;color:#666;letter-spacing:1px;text-transform:uppercase;cursor:pointer;text-decoration:underline;text-underline-offset:3px">
+      📁 Eller ladda upp QR-bild istället
+    </label>
+    <input type="file" id="imageUpload" accept="image/*" style="display:none" onchange="scanFromImage(event)">
+  </div>
+
+  <div class="loading" id="loading">
+    <div class="spinner"></div>
+    <p>Fetching track info…</p>
+  </div>
+
+  <div class="error-msg" id="errorMsg"></div>
+
+  <!-- Song Card -->
+  <div class="song-card" id="songCard">
+    <div class="song-header">
+      <img class="album-art" id="albumArt" src="" alt="Album art">
+      <div class="song-main">
+        <div class="song-name" id="songName">—</div>
+        <div class="song-artist" id="songArtist">—</div>
+        <div class="song-album" id="songAlbum">—</div>
+      </div>
+    </div>
+    <div class="song-details">
+      <div class="detail-item">
+        <div class="detail-label">Release Date</div>
+        <div class="detail-value" id="releaseDate">—</div>
+      </div>
+      <div class="detail-item">
+        <div class="detail-label">Duration</div>
+        <div class="detail-value" id="duration">—</div>
+      </div>
+      <div class="detail-item">
+        <div class="detail-label">Popularity</div>
+        <div class="detail-value" id="popularity">—</div>
+      </div>
+      <div class="detail-item">
+        <div class="detail-label">Explicit</div>
+        <div class="detail-value" id="explicit">—</div>
+      </div>
+      <div class="detail-item">
+        <div class="detail-label">Track #</div>
+        <div class="detail-value" id="trackNum">—</div>
+      </div>
+      <div class="detail-item">
+        <div class="detail-label">Album Type</div>
+        <div class="detail-value" id="albumType">—</div>
+      </div>
+    </div>
+    <div class="song-footer">
+      <button class="scan-again-btn" onclick="resumeScanner()">↩ Scan Again</button>
+      <a class="open-btn" id="openSpotify" href="#" target="_blank">
+        ♫ Open in Spotify
+      </a>
+    </div>
+  </div>
+
+  <!-- History -->
+  <div class="history-section" id="historySection" style="display:none">
+    <div class="history-title">Scanned tracks</div>
+    <div class="history-list" id="historyList"></div>
+  </div>
+</main>
+
+<footer>No login required · Uses Spotify public API · QR codes from Spotify app</footer>
+
+<script>
+let video = document.getElementById('video');
+let canvas = document.getElementById('canvas');
+let ctx = canvas.getContext('2d');
+let scanning = false;
+let animFrame = null;
+let stream = null;
+let scannedHistory = [];
+let lastScannedId = null;
+let clientToken = null;
+
+// ── Spotify token (public, no login) ──────────────────────────────
+async function getToken() {
+  if (clientToken && clientToken.expires > Date.now()) return clientToken.token;
+  try {
+    const r = await fetch('https://open.spotify.com/get_access_token?reason=transport&productType=web_player');
+    const d = await r.json();
+    clientToken = { token: d.accessToken, expires: Date.now() + (d.accessTokenExpirationTimestampMs - Date.now()) * 0.9 };
+    return clientToken.token;
+  } catch {
+    // fallback: anonymous token endpoint
+    const r2 = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'grant_type=client_credentials&client_id=&client_secret='
+    });
+    throw new Error('Could not get Spotify token. Try a direct Spotify link.');
+  }
+}
+
+async function fetchTrack(trackId) {
+  const token = await getToken();
+  const r = await fetch(`https://api.spotify.com/v1/tracks/${trackId}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!r.ok) throw new Error('Track not found (status ' + r.status + ')');
+  return r.json();
+}
+
+// ── Scan from uploaded image ──────────────────────────────────────
+function scanFromImage(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  hideError();
+  showLoading();
+  setStatus('LÄSER BILD…', true);
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const img = new Image();
+    img.onload = function() {
+      const c = document.createElement('canvas');
+      c.width = img.width;
+      c.height = img.height;
+      const cx = c.getContext('2d');
+      cx.drawImage(img, 0, 0);
+      const imageData = cx.getImageData(0, 0, c.width, c.height);
+      const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
+      if (code && code.data) {
+        const trackId = extractTrackId(code.data);
+        if (trackId) {
+          hideLoading();
+          onTrackFound(trackId, code.data);
+        } else {
+          hideLoading();
+          setStatus('FELAKTIG KOD', false);
+          showError('QR-koden hittades men är inte en Spotify-låtlänk.\n\nSe till att QR-koden leder till en Spotify-låt.');
+        }
+      } else {
+        hideLoading();
+        setStatus('INGEN KOD', false);
+        showError('Kunde inte läsa QR-koden från bilden.\n\nSe till att bilden är skarp och QR-koden syns tydligt.');
+      }
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+  // Reset input so same file can be uploaded again
+  event.target.value = '';
+}
+
+
+function extractTrackId(url) {
+  // Spotify QR codes link to: https://open.spotify.com/track/TRACKID
+  // or spotify:track:TRACKID
+  const m1 = url.match(/spotify\.com\/track\/([A-Za-z0-9]+)/);
+  if (m1) return m1[1];
+  const m2 = url.match(/spotify:track:([A-Za-z0-9]+)/);
+  if (m2) return m2[1];
+  return null;
+}
+
+// ── Camera ────────────────────────────────────────────────────────
+async function startScanner() {
+  setStatus('STARTING…', false);
+  hideError();
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    setStatus('NOT SUPPORTED', false);
+    showError('Your browser does not support camera access.\n\nTry opening this page in Chrome or Firefox instead.');
+    return;
+  }
+
+  // Try back camera first, fall back to any camera
+  const constraints = [
+    { video: { facingMode: { exact: 'environment' } } },
+    { video: { facingMode: 'environment' } },
+    { video: true }
+  ];
+
+  let success = false;
+  for (const constraint of constraints) {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(constraint);
+      success = true;
+      break;
+    } catch (e) {
+      // try next constraint
+    }
+  }
+
+  if (!success) {
+    setStatus('CAMERA ERROR', false);
+    showError('Brave is blocking the camera.\n\nTap the 🦁 lion icon in the address bar → turn Shields OFF for this page → refresh the page and try again.');
+    document.getElementById('startBtn').style.display = '';
+    return;
+  }
+
+  video.srcObject = stream;
+  video.setAttribute('playsinline', '');
+  video.setAttribute('muted', '');
+  video.muted = true;
+
+  // Wait for video to actually be ready before scanning
+  video.onloadedmetadata = () => {
+    video.play().then(() => {
+      scanning = true;
+      setStatus('SCANNING', true);
+      document.getElementById('startBtn').style.display = 'none';
+      hideSongCard();
+      // Small delay to let camera warm up
+      setTimeout(tick, 500);
+    }).catch(e => {
+      setStatus('CAMERA ERROR', false);
+      showError('Video kunde inte starta.\n\nFörsök ladda om sidan.');
+      document.getElementById('startBtn').style.display = '';
+    });
+  };
+}
+
+function stopScanner() {
+  scanning = false;
+  if (animFrame) cancelAnimationFrame(animFrame);
+  if (stream) stream.getTracks().forEach(t => t.stop());
+}
+
+function resumeScanner() {
+  hideSongCard();
+  hideError();
+  lastScannedId = null;
+  scanning = true;
+  setStatus('SCANNING', true);
+  tick();
+}
+
+function tick() {
+  if (!scanning) return;
+  if (video.readyState >= 2 && video.videoWidth > 0) {
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    try {
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'dontInvert' });
+      if (code && code.data) {
+        const trackId = extractTrackId(code.data);
+        if (trackId && trackId !== lastScannedId) {
+          lastScannedId = trackId;
+          scanning = false;
+          onTrackFound(trackId, code.data);
+          return;
+        }
+      }
+    } catch(e) {}
+  }
+  animFrame = requestAnimationFrame(tick);
+}
+
+// ── Track found ───────────────────────────────────────────────────
+async function onTrackFound(trackId, rawUrl) {
+  setStatus('FOUND QR', true);
+  showLoading();
+  try {
+    const track = await fetchTrack(trackId);
+    hideLoading();
+    displayTrack(track);
+  } catch (e) {
+    hideLoading();
+    setStatus('ERROR', false);
+    showError('Hmm, couldn\'t load track info.\n' + e.message + '\n\nMake sure you scanned a Spotify track QR code.');
+    setTimeout(() => { scanning = true; tick(); }, 3000);
+  }
+}
+
+function formatMs(ms) {
+  const s = Math.floor(ms / 1000);
+  return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
+}
+
+function popularityBar(p) {
+  const blocks = Math.round(p / 10);
+  return '▮'.repeat(blocks) + '▯'.repeat(10 - blocks) + ` ${p}%`;
+}
+
+function displayTrack(track) {
+  const album = track.album;
+  const artistNames = track.artists.map(a => a.name).join(', ');
+
+  document.getElementById('songName').textContent = track.name;
+  document.getElementById('songArtist').textContent = artistNames;
+  document.getElementById('songAlbum').textContent = album.name;
+  document.getElementById('releaseDate').textContent = album.release_date || '—';
+  document.getElementById('duration').textContent = formatMs(track.duration_ms);
+  document.getElementById('popularity').textContent = popularityBar(track.popularity);
+  document.getElementById('explicit').textContent = track.explicit ? 'YES ⚠' : 'Clean';
+  document.getElementById('trackNum').textContent = `${track.track_number} / ${album.total_tracks}`;
+  document.getElementById('albumType').textContent = (album.album_type || '—').toUpperCase();
+
+  const art = album.images && album.images[0] ? album.images[0].url : '';
+  document.getElementById('albumArt').src = art;
+  document.getElementById('openSpotify').href = track.external_urls.spotify;
+
+  document.getElementById('songCard').classList.add('visible');
+  setStatus('TRACK FOUND ✓', true);
+
+  // Add to history
+  addHistory({ id: track.id, name: track.name, artist: artistNames, art, url: track.external_urls.spotify });
+}
+
+function addHistory(item) {
+  scannedHistory = scannedHistory.filter(h => h.id !== item.id);
+  scannedHistory.unshift(item);
+  if (scannedHistory.length > 10) scannedHistory.pop();
+  renderHistory();
+}
+
+function renderHistory() {
+  const section = document.getElementById('historySection');
+  const list = document.getElementById('historyList');
+  if (scannedHistory.length === 0) { section.style.display = 'none'; return; }
+  section.style.display = 'block';
+  list.innerHTML = scannedHistory.map((h, i) => `
+    <a class="history-item" href="${h.url}" target="_blank">
+      <img class="history-thumb" src="${h.art}" alt="">
+      <div class="history-info">
+        <div class="history-name">${h.name}</div>
+        <div class="history-artist">${h.artist}</div>
+      </div>
+      <div class="history-num">#${i+1}</div>
+    </a>
+  `).join('');
+}
+
+// ── UI helpers ────────────────────────────────────────────────────
+function setStatus(text, active) {
+  document.getElementById('statusText').textContent = text;
+  document.getElementById('statusBadge').classList.toggle('active', active);
+}
+
+function showLoading() { document.getElementById('loading').classList.add('visible'); }
+function hideLoading() { document.getElementById('loading').classList.remove('visible'); }
+function hideSongCard() { document.getElementById('songCard').classList.remove('visible'); }
+function showError(msg) {
+  const el = document.getElementById('errorMsg');
+  el.textContent = msg;
+  el.classList.add('visible');
+}
+function hideError() { document.getElementById('errorMsg').classList.remove('visible'); }
+</script>
+</body>
+</html>

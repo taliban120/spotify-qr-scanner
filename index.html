@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Spotify QR Scanner</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --green: #1DB954;
+    --black: #0a0a0a;
+    --card: #141414;
+    --border: #2a2a2a;
+    --text: #f0f0f0;
+    --muted: #888;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background: var(--black);
+    color: var(--text);
+    font-family: 'Space Mono', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  body::before {
+    content:'';
+    position:fixed; inset:0;
+    background-image:
+      linear-gradient(rgba(29,185,84,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(29,185,84,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events:none; z-index:0;
+  }
+  header {
+    width:100%; max-width:600px;
+    padding: 28px 24px 0;
+    position:relative; z-index:1;
+  }
+  .logo { display:flex; align-items:center; gap:12px; margin-bottom:4px; }
+  .logo-icon {
+    width:36px; height:36px;
+    background:var(--green); border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    font-size:18px;
+    animation: pulse 3s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%,100% { box-shadow: 0 0 20px rgba(29,185,84,0.4); }
+    50% { box-shadow: 0 0 40px rgba(29,185,84,0.8); }
+  }
+  h1 { font-family:'Syne',sans-serif; font-size:20px; font-weight:800; letter-spacing:-0.5px; }
+  .subtitle { font-size:11px; color:var(--muted); letter-spacing:2px; text-transform:uppercase; margin-left:48px; }
+
+  main {
+    width:100%; max-width:600px;
+    padding: 20px 24px;
+    position:relative; z-index:1;
+    display:flex; flex-direction:column; gap:16px;
+  }
+
+  /* Camera */
+  .cam-wrap {
+    position:relative;
+    width:100%; aspect-ratio:1/1;
+    border-radius:16px; overflow:hidden;
+    background:#111;
+    border:1px solid var(--border);
+  }
+  #video {
+    width:100%; height:100%;
+    object-fit:cover; display:block;
+  }
+  .cam-overlay {
+    position:absolute; inset:0;
+    pointer-events:none;
+  }
+  .corner {
+    position:absolute;
+    width:32px; height:32px;
+    border-color:var(--green); border-style:solid;
+  }
+  .tl { top:20px; left:20px; border-width:3px 0 0 3px; border-radius:4px 0 0 0; }
+  .tr { top:20px; right:20px; border-width:3px 3px 0 0; border-radius:0 4px 0 0; }
+  .bl { bottom:20px; left:20px; border-width:0 0 3px 3px; border-radius:0 0 0 4px; }
+  .br { bottom:20px; right:20px; border-width:0 3px 3px 0; border-radius:0 0 4px 0; }
+  .scanline {
+    position:absolute; left:20px; right:20px; height:2px;
+    background:linear-gradient(90deg, transparent, rgba(29,185,84,0.8), #1DB954, rgba(29,185,84,0.8), transparent);
+    box-shadow: 0 0 8px #1DB954;
+    animation: scanmove 2.5s ease-in-out infinite;
+  }
+  @keyframes scanmove {
+    0%   { top:20px; opacity:0; }
+    10%  { opacity:1; }
+    90%  { opacity:1; }
+    100% { top:calc(100% - 20px); opacity:0; }
+  }
+  .cam-status {
+    position:absolute; bottom:16px; left:50%; transform:translateX(-50%);
+    font-size:10px; letter-spacing:2px; text-transform:uppercase;
+    color:rgba(255,255,255,0.6);
+    background:rgba(0,0,0,0.6); padding:4px 14px; border-radius:20px;
+    white-space:nowrap;
+  }
+  .debug-box {
+    position:absolute; top:8px; left:8px; right:8px;
+    background:rgba(0,0,0,0.7); color:#1DB954;
+    font-size:10px; padding:6px 10px; border-radius:8px;
+    letter-spacing:0.5px; line-height:1.6;
+    display:none;
+  }
+
+  /* Status */
+  .status-row {
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+  }
+  .status-badge {
+    display:inline-flex; align-items:center; gap:8px;
+    font-size:11px; letter-spacing:1.5px; text-transform:uppercase;
+    color:var(--muted); padding:6px 14px;
+    border:1px solid var(--border); border-radius:20px;
+    transition:all 0.3s;
+  }
+  .status-badge.active { color:var(--green); border-color:var(--green); background:rgba(29,185,84,0.08); }
+  .dot { width:6px; height:6px; border-radius:50%; background:var(--muted); transition:all 0.3s; }
+  .status-badge.active .dot { background:var(--green); box-shadow:0 0 6px var(--green); animation:blink 1.2s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* Loading */
+  .loading { text-align:center; padding:28px; display:none; }
+  .loading.show { display:block; }
+  .spinner {
+    width:36px; height:36px;
+    border:3px solid var(--border); border-top-color:var(--green);
+    border-radius:50%; animation:spin 0.8s linear infinite;
+    margin:0 auto 12px;
+  }
+  @keyframes spin { to{transform:rotate(360deg)} }
+  .loading p { font-size:11px; color:var(--muted); letter-spacing:2px; text-transform:uppercase; }
+
+  /* Error */
+  .error {
+    background:rgba(255,60,60,0.08); border:1px solid rgba(255,60,60,0.3);
+    border-radius:12px; padding:16px 20px;
+    font-size:12px; color:#ff6060;
+    display:none; white-space:pre-line; line-height:1.8;
+  }
+  .error.show { display:block; }
+
+  /* Song card */
+  .song-card {
+    background:var(--card); border:1px solid var(--border);
+    border-radius:16px; overflow:hidden;
+    display:none;
+    animation:slideUp 0.4s cubic-bezier(0.16,1,0.3,1);
+  }
+  .song-card.show { display:block; }
+  @keyframes slideUp { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+
+  .song-header {
+    display:flex; gap:16px; padding:20px;
+    align-items:center; border-bottom:1px solid var(--border);
+  }
+  .album-art {
+    width:80px; height:80px; border-radius:8px;
+    object-fit:cover; flex-shrink:0; background:var(--border);
+  }
+  .song-main { flex:1; min-width:0; }
+  .song-name {
+    font-family:'Syne',sans-serif; font-size:17px; font-weight:800;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .song-artist {
+    font-size:13px; color:var(--green); margin:4px 0;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .embed-wrap { padding:0 16px 4px; }
+  .song-footer {
+    padding:12px 16px 16px;
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+  }
+  .open-btn {
+    display:inline-flex; align-items:center; gap:8px;
+    background:var(--green); color:#000; text-decoration:none;
+    padding:8px 16px; border-radius:8px;
+    font-family:'Syne',sans-serif; font-size:12px; font-weight:800;
+  }
+  .scan-again-btn {
+    background:transparent; border:1px solid var(--border);
+    color:var(--muted); padding:8px 16px; border-radius:8px;
+    font-family:'Space Mono',monospace; font-size:11px;
+    cursor:pointer; letter-spacing:1px;
+  }
+
+  /* History */
+  .history-title {
+    font-size:10px; letter-spacing:2px; text-transform:uppercase;
+    color:var(--muted); margin-bottom:10px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .history-title::after { content:''; flex:1; height:1px; background:var(--border); }
+  .history-item {
+    display:flex; align-items:center; gap:12px;
+    padding:10px 12px; background:var(--card);
+    border:1px solid var(--border); border-radius:10px;
+    text-decoration:none; color:inherit; margin-bottom:8px;
+    transition:border-color 0.2s;
+  }
+  .history-item:hover { border-color:var(--green); }
+  .history-thumb { width:40px; height:40px; border-radius:6px; object-fit:cover; background:var(--border); flex-shrink:0; }
+  .history-info { flex:1; min-width:0; }
+  .history-name { font-size:12px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .history-artist { font-size:11px; color:var(--muted); }
+
+  footer { padding:20px; font-size:10px; color:#444; letter-spacing:1px; text-align:center; position:relative; z-index:1; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">♫</div>
+    <h1>SPOTIFY QR SCANNER</h1>
+  </div>
+  <div class="subtitle">Håll QR-koden inom ramen</div>
+</header>
+
+<main>
+  <div class="cam-wrap">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="canvas" style="display:none"></canvas>
+    <div class="cam-overlay">
+      <div class="corner tl"></div>
+      <div class="corner tr"></div>
+      <div class="corner bl"></div>
+      <div class="corner br"></div>
+      <div class="scanline" id="scanline"></div>
+      <div class="cam-status" id="camStatus">STARTAR…</div>
+      <div class="debug-box" id="debugBox"></div>
+    </div>
+  </div>
+
+  <div class="status-row">
+    <div class="status-badge" id="badge">
+      <div class="dot"></div>
+      <span id="badgeText">VÄNTAR</span>
+    </div>
+    <div style="font-size:10px;color:var(--muted);letter-spacing:1px" id="methodLabel"></div>
+  </div>
+
+  <div class="loading" id="loading">
+    <div class="spinner"></div>
+    <p>Hämtar låtinfo…</p>
+  </div>
+
+  <div class="error" id="errorBox"></div>
+
+  <div class="song-card" id="songCard">
+    <div class="song-header">
+      <img class="album-art" id="albumArt" src="" alt="">
+      <div class="song-main">
+        <div class="song-name" id="songName">—</div>
+        <div class="song-artist" id="songArtist">—</div>
+      </div>
+    </div>
+    <div class="embed-wrap" id="spotifyEmbed"></div>
+    <div class="song-footer">
+      <button class="scan-again-btn" onclick="resumeScan()">↩ Scanna igen</button>
+      <a class="open-btn" id="openSpotify" href="#" target="_blank">♫ Öppna i Spotify</a>
+    </div>
+  </div>
+
+  <div id="historySection" style="display:none">
+    <div class="history-title">Tidigare scannade</div>
+    <div id="historyList"></div>
+  </div>
+</main>
+
+<footer>Chrome på Android · BarcodeDetector + jsQR fallback</footer>
+
+<script>
+const video    = document.getElementById('video');
+const canvas   = document.getElementById('canvas');
+const ctx      = canvas.getContext('2d');
+const badge    = document.getElementById('badge');
+const badgeText= document.getElementById('badgeText');
+const camStatus= document.getElementById('camStatus');
+const methodLabel = document.getElementById('methodLabel');
+
+let stream = null;
+let scanLoop = null;
+let lastId = null;
+let paused = false;
+let history = [];
+let detector = null;
+let useNative = false;
+
+// ── Init ──────────────────────────────────────────────────────────
+async function init() {
+  // Check for native BarcodeDetector (Chrome Android 83+)
+  if ('BarcodeDetector' in window) {
+    try {
+      const formats = await BarcodeDetector.getSupportedFormats();
+      if (formats.includes('qr_code')) {
+        detector = new BarcodeDetector({ formats: ['qr_code'] });
+        useNative = true;
+        methodLabel.textContent = '✓ NATIVE DETECTOR';
+      }
+    } catch(e) {}
+  }
+  if (!useNative) {
+    methodLabel.textContent = '✓ JSQR FALLBACK';
+  }
+  startCamera();
+}
+
+// ── Camera ────────────────────────────────────────────────────────
+async function startCamera() {
+  setBadge('STARTAR', false);
+
+  const tries = [
+    { video: { facingMode: { exact: 'environment' } } },
+    { video: { facingMode: 'environment' } },
+    { video: true }
+  ];
+
+  for (const c of tries) {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(c);
+      break;
+    } catch(e) {}
+  }
+
+  if (!stream) {
+    showError('Kunde inte komma åt kameran.\n\n• Öppna sidan i Chrome\n• Tillåt kamera när Chrome frågar\n• Ladda om sidan');
+    return;
+  }
+
+  video.srcObject = stream;
+  video.onloadedmetadata = () => {
+    video.play().catch(() => {});
+  };
+  video.onplaying = () => {
+    setBadge('SCANNAR', true);
+    camStatus.textContent = 'HÅLL QR-KODEN STILLA';
+    startScanLoop();
+  };
+
+  // Extra fallback for some Android browsers
+  setTimeout(() => {
+    if (video.paused) video.play().catch(() => {});
+    if (video.readyState >= 3 && !scanLoop) {
+      setBadge('SCANNAR', true);
+      startScanLoop();
+    }
+  }, 2500);
+}
+
+// ── Scan loop ─────────────────────────────────────────────────────
+function startScanLoop() {
+  if (scanLoop) clearInterval(scanLoop);
+  scanLoop = setInterval(doScan, 150); // ~7fps
+}
+
+async function doScan() {
+  if (paused) return;
+  if (video.readyState < 2 || video.videoWidth === 0) return;
+
+  let result = null;
+
+  if (useNative && detector) {
+    // Native BarcodeDetector — fastest, most accurate on Android
+    try {
+      const codes = await detector.detect(video);
+      if (codes.length > 0) result = codes[0].rawValue;
+    } catch(e) {}
+  } else {
+    // jsQR fallback
+    try {
+      const w = video.videoWidth;
+      const h = video.videoHeight;
+      canvas.width = w;
+      canvas.height = h;
+      ctx.drawImage(video, 0, 0, w, h);
+      const imgData = ctx.getImageData(0, 0, w, h);
+      const code = jsQR(imgData.data, w, h, { inversionAttempts: 'attemptBoth' });
+      if (code) result = code.data;
+    } catch(e) {}
+  }
+
+  if (!result) return;
+
+  const trackId = extractTrackId(result);
+  if (!trackId || trackId === lastId) return;
+
+  lastId = trackId;
+  paused = true;
+  camStatus.textContent = 'KOD HITTAD! ♫';
+  setBadge('HITTAD', true);
+  onFound(trackId);
+}
+
+// ── Track ID extraction ───────────────────────────────────────────
+function extractTrackId(url) {
+  if (!url) return null;
+  const m1 = url.match(/spotify\.com\/track\/([A-Za-z0-9]+)/);
+  if (m1) return m1[1];
+  const m2 = url.match(/spotify:track:([A-Za-z0-9]+)/);
+  if (m2) return m2[1];
+  return null;
+}
+
+// ── Fetch track via oEmbed ────────────────────────────────────────
+async function fetchTrack(trackId) {
+  const spotifyUrl = `https://open.spotify.com/track/${trackId}`;
+  const r = await fetch(`https://open.spotify.com/oembed?url=${encodeURIComponent(spotifyUrl)}`);
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const d = await r.json();
+  return {
+    name: d.title || 'Okänd låt',
+    artist: d.artist_name || '—',
+    thumbnail: d.thumbnail_url || '',
+    url: spotifyUrl,
+    trackId
+  };
+}
+
+// ── On QR found ───────────────────────────────────────────────────
+async function onFound(trackId) {
+  showLoading();
+  hideError();
+  try {
+    const track = await fetchTrack(trackId);
+    hideLoading();
+    showTrack(track);
+  } catch(e) {
+    hideLoading();
+    showError('Kunde inte hämta låtinfo: ' + e.message);
+    setTimeout(resumeScan, 3000);
+  }
+}
+
+// ── Display ───────────────────────────────────────────────────────
+function showTrack(track) {
+  document.getElementById('songName').textContent = track.name;
+  document.getElementById('songArtist').textContent = track.artist;
+  document.getElementById('albumArt').src = track.thumbnail;
+  document.getElementById('openSpotify').href = track.url;
+  document.getElementById('spotifyEmbed').innerHTML =
+    `<iframe src="https://open.spotify.com/embed/track/${track.trackId}"
+      width="100%" height="80" frameborder="0"
+      allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+      style="border-radius:8px;margin:12px 0 4px;display:block"></iframe>`;
+  document.getElementById('songCard').classList.add('show');
+  addHistory(track);
+}
+
+function resumeScan() {
+  document.getElementById('songCard').classList.remove('show');
+  hideError();
+  lastId = null;
+  paused = false;
+  camStatus.textContent = 'HÅLL QR-KODEN STILLA';
+  setBadge('SCANNAR', true);
+}
+
+// ── History ───────────────────────────────────────────────────────
+function addHistory(track) {
+  history = history.filter(h => h.trackId !== track.trackId);
+  history.unshift(track);
+  if (history.length > 8) history.pop();
+  const section = document.getElementById('historySection');
+  const list = document.getElementById('historyList');
+  section.style.display = 'block';
+  list.innerHTML = history.map(h => `
+    <a class="history-item" href="${h.url}" target="_blank">
+      <img class="history-thumb" src="${h.thumbnail}" alt="">
+      <div class="history-info">
+        <div class="history-name">${h.name}</div>
+        <div class="history-artist">${h.artist}</div>
+      </div>
+    </a>`).join('');
+}
+
+// ── UI helpers ────────────────────────────────────────────────────
+function setBadge(text, active) {
+  badgeText.textContent = text;
+  badge.classList.toggle('active', active);
+}
+function showLoading() { document.getElementById('loading').classList.add('show'); }
+function hideLoading() { document.getElementById('loading').classList.remove('show'); }
+function showError(msg) { const e = document.getElementById('errorBox'); e.textContent = msg; e.classList.add('show'); }
+function hideError() { document.getElementById('errorBox').classList.remove('show'); }
+
+init();
+</script>
+</body>
+</html>

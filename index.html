@@ -457,29 +457,27 @@ async function onFound(trackId) {
   }
 }
 
-// ── Fetch artist info via Claude API ─────────────────────────────
-async function fetchArtistInfo(artistName, songName) {
-  const prompt = `Du är en musikexpert. Ge mig 3 korta och underhållande punkter om artisten "${artistName}" på svenska.
-Inkludera gärna:
-- En känd skandal eller kontroversiellt moment
-- En rolig/okänd faktoid
-- Vad de är mest kända för
+// ── Fetch artist info via Wikipedia ──────────────────────────────
+async function fetchArtistInfo(artistName) {
+  // Search for artist
+  const searchUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(artistName)}`;
+  const r = await fetch(searchUrl);
+  if (!r.ok) {
+    // Try with "musician" appended
+    const r2 = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(artistName + ' musician')}`);
+    if (!r2.ok) throw new Error('Hittades inte');
+    const d2 = await r2.json();
+    return formatWikiInfo(d2);
+  }
+  const d = await r.json();
+  return formatWikiInfo(d);
+}
 
-Håll det kort, max 2 meningar per punkt. Använd bullet points (•). Svara BARA med punkterna, ingen inledning.`;
-
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 300,
-      messages: [{ role: "user", content: prompt }]
-    })
-  });
-
-  if (!response.ok) throw new Error("Claude API fel");
-  const data = await response.json();
-  return data.content[0].text;
+function formatWikiInfo(data) {
+  if (!data.extract) throw new Error('Ingen info');
+  // Take first 3 sentences max
+  const sentences = data.extract.split('. ').slice(0, 4).join('. ');
+  return sentences;
 }
 
 // ── Display ───────────────────────────────────────────────────────
@@ -503,7 +501,7 @@ function showTrack(track) {
   artistInfo.style.display = 'none';
   artistLoading.style.display = 'flex';
 
-  fetchArtistInfo(track.artist, track.name)
+  fetchArtistInfo(track.artist)
     .then(text => {
       artistLoading.style.display = 'none';
       artistInfoText.textContent = text;
